@@ -23,7 +23,10 @@ services:
     depends_on:
       - postgres
   ganok-bot:
-    image: ${ECR_IMAGE:-ganok-bot:latest}
+    build:
+      context: .
+      target: ganokbot-runtime
+    image: ganok-bot:latest
     restart: always
     env_file:
       - .env

@@ -27,7 +27,7 @@ services:
   ganok-bot:
     build:
       context: .
-      target: ganok-bot
+      target: ganokbot-debug
     env_file:
       - .env
     image: ganok-bot:latest
