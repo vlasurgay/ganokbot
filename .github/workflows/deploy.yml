@@ -39,12 +39,11 @@ jobs:
               "mkdir -p ${APP_DIR}",
               "cd ${APP_DIR}",
               "if [ ! -d .git ]; then git clone ${REPO_URL} .; fi",
-              "GITHUB_PAT=$(aws ssm get-parameter --region ${AWS_REGION} --name /ganokbot/GITHUB_PAT --with-decryption --query Parameter.Value --output text || echo '')",
-              "if [ -n \"$GITHUB_PAT\" ]; then git remote set-url origin https://$GITHUB_PAT@github.com/vlasurgay/ganokbot.git; fi",
               "git fetch origin",
               "git checkout ${BRANCH} || true",
               "git reset --hard origin/${BRANCH}",
-              "eval \"$(aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output json | jq -r '.[] | \"export \" + (.Name | sub(\".*/\";\"\")) + \"=\" + (.Value | @sh)' )\"",
+              "umask 077",
+              "aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output text | awk '{key=$1; sub(\\\".*/\\\",\\\"\\\",key); $1=\\\"\\\"; sub(/^ /,\\\"\\\"); print key \\\"=\\\" $0}' > .env",
               "docker compose down",
               "docker compose up -d --build"
             ]' \
