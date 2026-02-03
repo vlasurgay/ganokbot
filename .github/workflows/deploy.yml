@@ -33,19 +33,21 @@ jobs:
             --instance-ids "${INSTANCE_ID}" \
             --comment "ganokbot deploy from github actions" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands="[
-              \"set -euo pipefail\",
-              \"apt-get install -y jq\",  # Для парсингу SSM
-              \"mkdir -p ${APP_DIR}\",
-              \"cd ${APP_DIR}\",
-              \"if [ ! -d .git ]; then git clone ${REPO_URL} .; fi\",
-              \"git fetch origin\",
-              \"git checkout ${BRANCH} || true\",
-              \"git reset --hard origin/${BRANCH}\",
-              \"eval \\\"\\\$(aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output json | jq -r '.[] | \\\"export \\\(.Name | sub(\\\\\\\".*/\\\\\\\";\\\\\\\"\\\\\\\") )=\\\(.Value | @sh) \\\"') \\\" \",
-              \"docker compose down\",
-              \"docker compose up -d --build\"
-            ]" \
+            --parameters commands='[
+              "set -euo pipefail",
+              "apt-get install -y jq",
+              "mkdir -p ${APP_DIR}",
+              "cd ${APP_DIR}",
+              "if [ ! -d .git ]; then git clone ${REPO_URL} .; fi",
+              "GITHUB_PAT=$(aws ssm get-parameter --region ${AWS_REGION} --name /ganokbot/GITHUB_PAT --with-decryption --query Parameter.Value --output text || echo '')",
+              "if [ -n \"$GITHUB_PAT\" ]; then git remote set-url origin https://$GITHUB_PAT@github.com/vlasurgay/ganokbot.git; fi",
+              "git fetch origin",
+              "git checkout ${BRANCH} || true",
+              "git reset --hard origin/${BRANCH}",
+              "eval \"$(aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output json | jq -r '.[] | \"export \" + (.Name | sub(\".*/\";\"\")) + \"=\" + (.Value | @sh)' )\"",
+              "docker compose down",
+              "docker compose up -d --build"
+            ]' \
             --query "Command.CommandId" --output text)
           echo "SSM CommandId: $CMD_ID"
           aws ssm wait command-executed \
