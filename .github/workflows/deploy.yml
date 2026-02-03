@@ -35,7 +35,7 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters commands='[
               "set -euo pipefail",
-              "apt-get install -y jq",
+              "apt-get install -y jq sed coreutils",
               "mkdir -p ${APP_DIR}",
               "cd ${APP_DIR}",
               "if [ ! -d .git ]; then git clone ${REPO_URL} .; fi",
@@ -43,7 +43,10 @@ jobs:
               "git checkout ${BRANCH} || true",
               "git reset --hard origin/${BRANCH}",
               "umask 077",
-              "aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output text | awk '{key=$1; sub(\\\".*/\\\",\\\"\\\",key); $1=\\\"\\\"; sub(/^ /,\\\"\\\"); print key \\\"=\\\" $0}' > .env",
+              "aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query Parameters[*].Name --output text | sed \"s|.*/||\" > keys.txt",
+              "aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query Parameters[*].Value --output text > values.txt",
+              "paste -d= keys.txt values.txt > .env",
+              "rm -f keys.txt values.txt",
               "docker compose down",
               "docker compose up -d --build"
             ]' \
