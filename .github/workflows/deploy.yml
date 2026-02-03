@@ -1,18 +1,14 @@
 name: Deploy to EC2 via SSM
-
 on:
   push:
     branches: ["master"]
   workflow_dispatch: {}
-
 permissions:
   id-token: write
   contents: read
-
 concurrency:
   group: prod
   cancel-in-progress: true
-
 env:
   AWS_REGION: eu-central-1
   INSTANCE_ID: i-08012cd83dd79734d
@@ -20,7 +16,6 @@ env:
   REPO_URL: https://github.com/vlasurgay/ganokbot.git
   BRANCH: master
   SSM_PARAM_PATH: /ganokbot/
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -30,11 +25,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::220872168257:role/GitHubActionsRole
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Deploy using SSM Run Command
         run: |
           set -euo pipefail
-
           CMD_ID=$(aws ssm send-command \
             --region "${AWS_REGION}" \
             --instance-ids "${INSTANCE_ID}" \
@@ -42,31 +35,29 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --parameters commands="[
               \"set -euo pipefail\",
+              \"apt-get install -y jq\",  # Для парсингу SSM
               \"mkdir -p ${APP_DIR}\",
               \"cd ${APP_DIR}\",
               \"if [ ! -d .git ]; then git clone ${REPO_URL} .; fi\",
               \"git fetch origin\",
               \"git checkout ${BRANCH} || true\",
               \"git reset --hard origin/${BRANCH}\",
-              \"eval \\\"\\\$(aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output text | awk '{key=\\$1; sub(\\\".*/\\\",\\\"\\\",key); \\$1=\\\"\\\"; sub(/^ /,\\\"\\\"); printf(\\\"export %s=%q\\\\n\\\", key, \\$0)}')\\\" \",
+              \"eval \\\"\\\$(aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query 'Parameters[*].[Name,Value]' --output json | jq -r '.[] | \\\"export \\\(.Name | sub(\\\\\\\".*/\\\\\\\";\\\\\\\"\\\\\\\") )=\\\(.Value | @sh) \\\"') \\\" \",
+              \"docker compose down\",
               \"docker compose up -d --build\"
             ]" \
             --query "Command.CommandId" --output text)
-
           echo "SSM CommandId: $CMD_ID"
-
           aws ssm wait command-executed \
             --region "${AWS_REGION}" \
             --command-id "$CMD_ID" \
             --instance-id "${INSTANCE_ID}"
-
           aws ssm get-command-invocation \
             --region "${AWS_REGION}" \
             --command-id "$CMD_ID" \
             --instance-id "${INSTANCE_ID}" \
             --query "StandardOutputContent" \
             --output text
-
           aws ssm get-command-invocation \
             --region "${AWS_REGION}" \
             --command-id "$CMD_ID" \
