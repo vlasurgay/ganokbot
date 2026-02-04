@@ -10,6 +10,7 @@ env:
   AWS_ACCOUNT_ID: 220872168257
   ECR_REGISTRY: 220872168257.dkr.ecr.eu-central-1.amazonaws.com
   ECR_REPOSITORY: ohsureguy/ganokbot
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-and-push:
