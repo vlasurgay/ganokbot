@@ -1,70 +1,70 @@
-name: Deploy to EC2 via SSM
+name: Build and Deploy to EC2
+
 on:
   push:
-    branches: ["master"]
-  workflow_dispatch: {}
-permissions:
-  id-token: write
-  contents: read
-concurrency:
-  group: prod
-  cancel-in-progress: true
+    branches:
+      - master
+
 env:
   AWS_REGION: eu-central-1
-  INSTANCE_ID: i-0c87023455f891340
-  APP_DIR: /opt/ganokbot
-  REPO_URL: https://github.com/vlasurgay/ganokbot.git
-  BRANCH: master
-  SSM_PARAM_PATH: /ganokbot/
+  ECR_REPOSITORY: ohsureguy/ganokbot
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
-  deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Configure AWS credentials
+      - name: checkout code
+        uses: actions/checkout@v4
+
+      - name: configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::220872168257:role/GitHubActionsRole
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Deploy using SSM Run Command
+
+      - name: login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          set -euo pipefail
-          CMD_ID=$(aws ssm send-command \
-            --region "${AWS_REGION}" \
-            --instance-ids "${INSTANCE_ID}" \
-            --comment "ganokbot deploy from github actions" \
-            --document-name "AWS-RunShellScript" \
-            --parameters commands='[
-              "set -euo pipefail",
-              "apt-get install -y jq sed coreutils",
-              "mkdir -p ${APP_DIR}",
-              "cd ${APP_DIR}",
-              "if [ ! -d .git ]; then git clone ${REPO_URL} .; fi",
-              "git fetch origin",
-              "git checkout ${BRANCH} || true",
-              "git reset --hard origin/${BRANCH}",
-              "umask 077",
-              "aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query Parameters[*].Name --output text | sed \"s|.*/||\" > keys.txt",
-              "aws ssm get-parameters-by-path --region ${AWS_REGION} --path ${SSM_PARAM_PATH} --with-decryption --recursive --query Parameters[*].Value --output text > values.txt",
-              "paste -d= keys.txt values.txt > .env",
-              "rm -f keys.txt values.txt",
-              "docker compose down",
-              "docker compose up -d --build"
-            ]' \
-            --query "Command.CommandId" --output text)
-          echo "SSM CommandId: $CMD_ID"
-          aws ssm wait command-executed \
-            --region "${AWS_REGION}" \
-            --command-id "$CMD_ID" \
-            --instance-id "${INSTANCE_ID}"
-          aws ssm get-command-invocation \
-            --region "${AWS_REGION}" \
-            --command-id "$CMD_ID" \
-            --instance-id "${INSTANCE_ID}" \
-            --query "StandardOutputContent" \
-            --output text
-          aws ssm get-command-invocation \
-            --region "${AWS_REGION}" \
-            --command-id "$CMD_ID" \
-            --instance-id "${INSTANCE_ID}" \
-            --query "StandardErrorContent" \
-            --output text || true
+          docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} --target ganokbot-runtime .
+          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/ganokbot
+
+            git pull origin master
+
+            # Fetch secrets from SSM and create .env
+            aws configure set region ${{ env.AWS_REGION }}
+            echo "WEB_SERVER_PORT=$(aws ssm get-parameter --name /ganokbot/WEB_SERVER_PORT --with-decryption --query Parameter.Value --output text)" > .env
+            echo "DB_NAME=$(aws ssm get-parameter --name /ganokbot/DB_NAME --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "DB_HOST=$(aws ssm get-parameter --name /ganokbot/DB_HOST --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "DB_PORT=$(aws ssm get-parameter --name /ganokbot/DB_PORT --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "DB_USER=$(aws ssm get-parameter --name /ganokbot/DB_USER --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "DB_PASSWORD=$(aws ssm get-parameter --name /ganokbot/DB_PASSWORD --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "BOT_USERNAME=$(aws ssm get-parameter --name /ganokbot/BOT_USERNAME --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "BOT_TOKEN=$(aws ssm get-parameter --name /ganokbot/BOT_TOKEN --with-decryption --query Parameter.Value --output text)" >> .env
+            echo "BOT_CREATOR_ID=$(aws ssm get-parameter --name /ganokbot/BOT_CREATOR_ID --with-decryption --query Parameter.Value --output text)" >> .env
+
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}  # Note: login-ecr is from previous job; adjust if needed or re-run login
+
+            docker compose pull ganok-bot
+            docker compose up -d --force-recreate ganok-bot
