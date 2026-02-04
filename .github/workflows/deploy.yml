@@ -65,8 +65,11 @@ jobs:
             echo "BOT_USERNAME=$(aws ssm get-parameter --name /ganokbot/BOT_USERNAME --with-decryption --query Parameter.Value --output text)" >> .env
             echo "BOT_TOKEN=$(aws ssm get-parameter --name /ganokbot/BOT_TOKEN --with-decryption --query Parameter.Value --output text)" >> .env
             echo "BOT_CREATOR_ID=$(aws ssm get-parameter --name /ganokbot/BOT_CREATOR_ID --with-decryption --query Parameter.Value --output text)" >> .env
-
+            
+            sudo systemctl enable --now docker
+            
             aws ecr get-login-password --region eu-central-1 \
-            | docker login --username AWS --password-stdin 220872168257.dkr.ecr.eu-central-1.amazonaws.com
-            docker compose pull ganok-bot
-            docker compose up -d --force-recreate ganok-bot
+            | sudo docker login --username AWS --password-stdin 220872168257.dkr.ecr.eu-central-1.amazonaws.com
+            
+            sudo docker compose pull ganok-bot
+            sudo docker compose up -d --force-recreate ganok-bot
