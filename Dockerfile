@@ -18,10 +18,10 @@ ENTRYPOINT ["java","-Dspring.config.location=./config/application.properties","-
 
 FROM ganokbot-runtime AS ganokbot-debug
 EXPOSE 5005
-ENTRYPOINT [
-  "java",
-  "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005",
-  "-Dspring.config.location=./config/application.properties",
-  "-jar",
-  "GanokBot.jar"
+ENTRYPOINT [ \
+  "java", \
+  "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005", \
+  "-Dspring.config.location=./config/application.properties", \
+  "-jar", \
+  "/app/app.jar" \
 ]
